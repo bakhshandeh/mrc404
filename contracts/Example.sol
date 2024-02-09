@@ -1,11 +1,11 @@
 //SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.0;
 
-import {ERC404} from "./ERC404.sol";
+import {MRC404} from "./MRC404.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
-contract Example is ERC404 {
-    constructor(address _owner) ERC404("Example", "EXM", 18, 10_000, _owner) {
+contract Example is MRC404 {
+    constructor(address _owner) MRC404("Example", "EXM", 18, 10_000, _owner) {
         balanceOf[_owner] = totalSupply;
         setWhitelist(_owner, true);
     }

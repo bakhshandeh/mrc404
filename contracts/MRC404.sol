@@ -1,42 +1,7 @@
 //SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.0;
 
-abstract contract Ownable {
-    event OwnershipTransferred(address indexed user, address indexed newOwner);
-
-    error Unauthorized();
-    error InvalidOwner();
-
-    address public owner;
-
-    modifier onlyOwner() virtual {
-        if (msg.sender != owner) revert Unauthorized();
-
-        _;
-    }
-
-    constructor(address _owner) {
-        if (_owner == address(0)) revert InvalidOwner();
-
-        owner = _owner;
-
-        emit OwnershipTransferred(address(0), _owner);
-    }
-
-    function transferOwnership(address _owner) public virtual onlyOwner {
-        if (_owner == address(0)) revert InvalidOwner();
-
-        owner = _owner;
-
-        emit OwnershipTransferred(msg.sender, _owner);
-    }
-
-    function revokeOwnership() public virtual onlyOwner {
-        owner = address(0);
-
-        emit OwnershipTransferred(msg.sender, address(0));
-    }
-}
+import "@openzeppelin/contracts/access/AccessControl.sol";
 
 abstract contract ERC721Receiver {
     function onERC721Received(
@@ -65,7 +30,10 @@ abstract contract ERC721Receiver {
 ///         NFTs are spent on ERC20 functions in a FILO queue, this is by
 ///         design.
 ///
-abstract contract ERC404 is Ownable {
+abstract contract MRC404 is AccessControl {
+    bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
+    bytes32 public constant DAO_ROLE = keccak256("DAO_ROLE");
+
     // Events
     event ERC20Transfer(
         address indexed from,
@@ -94,11 +62,13 @@ abstract contract ERC404 is Ownable {
     );
 
     // Errors
+    error Unauthorized();
     error NotFound();
     error AlreadyExists();
     error InvalidRecipient();
     error InvalidSender();
     error UnsafeRecipient();
+    error ERC20InsufficientAllowance(address spender, uint256 allowed, uint256 amount);
 
     // Metadata
     /// @dev Token name
@@ -148,16 +118,18 @@ abstract contract ERC404 is Ownable {
         uint8 _decimals,
         uint256 _totalNativeSupply,
         address _owner
-    ) Ownable(_owner) {
+    ) {
         name = _name;
         symbol = _symbol;
         decimals = _decimals;
         totalSupply = _totalNativeSupply * (10 ** decimals);
+        
+        _setupRole(DEFAULT_ADMIN_ROLE, _owner);
     }
 
     /// @notice Initialization function to set pairs / etc
     ///         saving gas by avoiding mint / burn on unnecessary targets
-    function setWhitelist(address target, bool state) public onlyOwner {
+    function setWhitelist(address target, bool state) public onlyRole('DAO_ROLE') {
         whitelist[target] = state;
     }
 
@@ -303,6 +275,54 @@ abstract contract ERC404 is Ownable {
         ) {
             revert UnsafeRecipient();
         }
+    }
+
+    function burnFrom(address from, uint256 amount) public {
+
+        uint256 allowed = allowance[from][msg.sender];
+        if (allowed != type(uint256).max){
+            if (allowed < amount) {
+                revert ERC20InsufficientAllowance(msg.sender, allowed, amount);
+            }
+            allowance[from][msg.sender] = allowed - amount;
+        }
+
+        uint256 unit = _getUnit();
+        uint256 balanceBeforeSender = balanceOf[from];
+
+        balanceOf[from] -= amount;
+
+        // Skip burn for certain addresses to save gas
+        if (!whitelist[from]) {
+            uint256 tokens_to_burn = (balanceBeforeSender / unit) -
+                (balanceOf[from] / unit);
+            for (uint256 i = 0; i < tokens_to_burn; i++) {
+                _burn(from);
+            }
+        }
+
+        emit ERC20Transfer(from, address(0), amount);
+    }
+
+    function mint(address to, uint256 amount) public onlyRole(MINTER_ROLE) {
+        //TODO: check total supply
+        uint256 unit = _getUnit();
+        uint256 balanceBeforeReceiver = balanceOf[to];
+
+        unchecked {
+            balanceOf[to] += amount;
+        }
+
+        // Skip minting for certain addresses to save gas
+        if (!whitelist[to]) {
+            uint256 tokens_to_mint = (balanceOf[to] / unit) -
+                (balanceBeforeReceiver / unit);
+            for (uint256 i = 0; i < tokens_to_mint; i++) {
+                _mint(to);
+            }
+        }
+
+        emit ERC20Transfer(address(0), to, amount);
     }
 
     /// @notice Internal function for fractional transfers
