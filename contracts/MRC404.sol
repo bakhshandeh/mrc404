@@ -125,11 +125,12 @@ abstract contract MRC404 is AccessControl {
         totalSupply = _totalNativeSupply * (10 ** decimals);
         
         _setupRole(DEFAULT_ADMIN_ROLE, _owner);
+        _setupRole(DAO_ROLE, _owner);
     }
 
     /// @notice Initialization function to set pairs / etc
     ///         saving gas by avoiding mint / burn on unnecessary targets
-    function setWhitelist(address target, bool state) public onlyRole('DAO_ROLE') {
+    function setWhitelist(address target, bool state) public onlyRole(DAO_ROLE) {
         whitelist[target] = state;
     }
 
